@@ -4,9 +4,20 @@ Paste a YouTube link, get a structured summary back — key insights, executive 
 
 ## Status
 
-**Phase 1 (May 19, 2026):** Backend skeleton — Flask app boots, validates input, returns stubbed `SummaryPayload` in `TEST_MODE`.
+- **Phase 1 (2026-05-16):** Flask skeleton + Pydantic schema + 17 tests · DONE
+- **Phase 2 (2026-05-16):** Real pipeline live — `yt-dlp` → Whisper.cpp → Claude with prompt caching · DONE
+- **Phase 3 (next):** React frontend
+- **Phase 4–6:** Integration + deployment + case study
 
-**Phase 2 (upcoming):** Wire the real pipeline — `yt-dlp` audio download → Whisper.cpp transcription → Claude API with prompt caching → structured JSON response.
+### Phase 2 verified metrics
+
+| Test | Duration | Pipeline time | Tokens | Cache hit |
+|------|----------|---------------|--------|-----------|
+| "Me at the zoo" (1st YT video ever) | 19s | 17.2s | 651 | n/a (too short for cache) |
+| Steve Jobs Stanford 2005 — call 1 | 904s (15 min) | 59.3s | 3731 | False (cache create) |
+| Steve Jobs Stanford 2005 — call 2 | 904s (15 min) | 61.6s | 3735 | **True** (~90% cheaper) |
+
+**Cache caveat:** Anthropic only caches content blocks ≥1024 tokens. Short transcripts (under ~5 min of speech) won't trigger the cache, even with `cache_control: ephemeral`. This is a real production constraint worth knowing.
 
 ## Architecture
 
@@ -21,24 +32,33 @@ Flask (Render)
       └─ Pydantic      validate response before returning
 ```
 
-## Local dev (backend only — Phase 1)
+## Local dev (backend)
 
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env       # fill in ANTHROPIC_API_KEY when ready
+cp .env.example .env       # fill in ANTHROPIC_API_KEY
 
 # run tests
 pytest -v
 
-# boot server
+# boot server in TEST_MODE (default — returns stubbed payload, no API calls)
 python app.py
+
+# boot server in LIVE mode (real pipeline)
+TEST_MODE=false python app.py
 # -> http://localhost:5001/health
 ```
 
-In TEST_MODE (default in `.env.example`), `POST /api/summarize` returns a stub payload without calling any external APIs — great for frontend dev and CI.
+### System dependencies (live mode)
+
+- **ffmpeg** — used by `yt-dlp` to extract WAV (`brew install ffmpeg`)
+- **whisper.cpp** — local transcription (`brew install whisper-cpp`)
+- **Whisper model** — `ggml-small.en.bin`. Default path: `~/.cache/hyperframes/whisper/models/ggml-small.en.bin`. Override via `WHISPER_MODEL` env var if your model lives elsewhere.
+
+In TEST_MODE (default in `.env.example`), `POST /api/summarize` returns a fully-shaped stub without calling any external APIs — great for frontend dev and CI.
 
 ## API
 

@@ -1,13 +1,17 @@
-"""Phase 1 smoke tests.
+"""Endpoint-level tests.
 
-These verify the skeleton boots correctly and the API contract is enforced.
-Phase 2 will add tests for the yt-dlp/Whisper/Claude pipeline.
+URL validation, request shape, and the TEST_MODE happy path. Live-mode tests
+(TEST_MODE=false) mock run_pipeline. The pipeline functions themselves are
+tested in test_pipeline.py.
 """
 import json
+from unittest.mock import patch
 
 import pytest
 
+import app as app_module
 from app import app, is_valid_youtube_url
+from pipeline import DownloadError, TranscribeError, SummarizeError
 
 
 @pytest.fixture
@@ -102,3 +106,69 @@ def test_summarize_returns_stub_in_test_mode(client):
     assert isinstance(body['summary']['key_insights'], list)
     assert isinstance(body['summary']['action_items'], list)
     assert body['metadata']['model'] == 'stub'
+
+
+# ---------- /api/summarize live-mode (TEST_MODE=false) ----------
+
+@pytest.fixture
+def live_mode(monkeypatch):
+    """Flip TEST_MODE off for one test so the pipeline path runs."""
+    monkeypatch.setattr(app_module, "TEST_MODE", False)
+
+
+def test_summarize_live_mode_calls_pipeline(client, live_mode):
+    fake_payload = {
+        "video": {"title": "T", "channel": "C", "duration_seconds": 10, "url": "u", "thumbnail_url": None},
+        "transcript": {"full_text": "hello", "word_count": 1, "language": "en"},
+        "summary": {
+            "executive_summary": "s", "key_insights": ["a"],
+            "action_items": [], "topics_covered": ["x", "y", "z"], "tone": "casual",
+        },
+        "metadata": {
+            "generated_at": "2026-05-16T00:00:00+00:00",
+            "model": "claude-sonnet-4-6", "tokens_used": 1234,
+            "cache_hit": False, "pipeline_seconds": 42.0,
+        },
+    }
+    with patch.object(app_module, "run_pipeline", return_value=fake_payload):
+        response = client.post('/api/summarize', json={
+            'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        })
+    assert response.status_code == 200
+    body = json.loads(response.data)
+    assert body["metadata"]["model"] == "claude-sonnet-4-6"
+    assert body["metadata"]["tokens_used"] == 1234
+
+
+def test_summarize_live_mode_download_error_returns_502(client, live_mode):
+    with patch.object(app_module, "run_pipeline", side_effect=DownloadError("video unavailable")):
+        response = client.post('/api/summarize', json={
+            'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        })
+    assert response.status_code == 502
+    body = json.loads(response.data)
+    assert 'extract audio' in body['error'].lower()
+
+
+def test_summarize_live_mode_transcribe_error_returns_502(client, live_mode):
+    with patch.object(app_module, "run_pipeline", side_effect=TranscribeError("silent audio")):
+        response = client.post('/api/summarize', json={
+            'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        })
+    assert response.status_code == 502
+
+
+def test_summarize_live_mode_credit_error_returns_402(client, live_mode):
+    with patch.object(app_module, "run_pipeline", side_effect=SummarizeError("credit balance is too low")):
+        response = client.post('/api/summarize', json={
+            'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        })
+    assert response.status_code == 402
+
+
+def test_summarize_live_mode_unexpected_error_returns_500(client, live_mode):
+    with patch.object(app_module, "run_pipeline", side_effect=RuntimeError("boom")):
+        response = client.post('/api/summarize', json={
+            'url': 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        })
+    assert response.status_code == 500

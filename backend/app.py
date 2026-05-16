@@ -1,15 +1,19 @@
 """YouTube Video Summarizer — Flask backend.
 
-Phase 1 (skeleton): wires up the request/response shape, returns a stubbed
-summary in TEST_MODE so the frontend and CI can run without real API calls.
+Phase 2: full pipeline.
+  POST /api/summarize {url}
+    -> yt-dlp downloads audio + metadata
+    -> Whisper.cpp transcribes
+    -> Claude summarizes with prompt caching
+    -> Pydantic-validated JSON response
 
-Phase 2 will fill in the real pipeline:
-    URL -> yt-dlp (audio) -> Whisper (transcript) -> Claude (summary).
+TEST_MODE=true short-circuits to a stub so frontend dev & CI don't need
+API credits.
 """
 import os
-import json
 import logging
 import re
+import tempfile
 from datetime import datetime, timezone
 
 from flask import Flask, request, jsonify
@@ -26,8 +30,23 @@ from models import (
     SummaryContent,
     ResponseMetadata,
 )
+from pipeline import (
+    run_pipeline,
+    DownloadError,
+    TranscribeError,
+    SummarizeError,
+)
 
 load_dotenv()
+# Some shells (certain IDE / agent environments) export ANTHROPIC_API_KEY=""
+# which prevents the .env value from being used (load_dotenv() doesn't
+# override "set" vars, even when their value is the empty string). Treat
+# empty-string env vars as missing and refill from .env. Real non-empty
+# shell vars (e.g. TEST_MODE=false passed on the command line) win.
+from dotenv import dotenv_values
+for _k, _v in dotenv_values().items():
+    if _v and not os.environ.get(_k):
+        os.environ[_k] = _v
 
 logging.basicConfig(
     level=logging.INFO,
@@ -140,12 +159,34 @@ def summarize():
         logger.info("TEST_MODE: returning stub for url=%s", req.url)
         return jsonify(stub_summary_payload(req.url))
 
-    # Phase 2 will replace this with the real pipeline.
-    logger.warning("Live mode requested but pipeline not implemented (Phase 2).")
-    return jsonify({
-        'error': 'Live pipeline not implemented yet. Set TEST_MODE=true in .env, '
-                 'or wait for Phase 2 (yt-dlp + Whisper + Claude integration).',
-    }), 501
+    # Real pipeline (Phase 2)
+    logger.info("Pipeline START url=%s", req.url)
+    try:
+        with tempfile.TemporaryDirectory(prefix="yts_") as tmp:
+            payload = run_pipeline(req.url, out_dir=tmp, client=client)
+        return jsonify(payload)
+    except DownloadError as e:
+        logger.warning("Download failed: %s", e)
+        return jsonify({
+            'error': 'Could not extract audio from this video. '
+                     'It may be private, region-locked, or YouTube changed its system. '
+                     'Try a different video.',
+            'detail': str(e),
+        }), 502
+    except TranscribeError as e:
+        logger.error("Transcription failed: %s", e)
+        return jsonify({
+            'error': 'Could not transcribe the audio. The video may be too short or silent.',
+            'detail': str(e),
+        }), 502
+    except SummarizeError as e:
+        logger.error("Summarization failed: %s", e)
+        msg = str(e)
+        status = 402 if 'credit' in msg.lower() else 502
+        return jsonify({'error': msg}), status
+    except Exception as e:
+        logger.exception("Unexpected pipeline error")
+        return jsonify({'error': 'Unexpected server error. Please try again.'}), 500
 
 
 if __name__ == '__main__':
