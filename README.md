@@ -1,22 +1,45 @@
 # YouTube Video Summarizer
 
-Paste a YouTube link, get a structured summary back — key insights, executive summary, action items, topics covered. Built as Week 2 of [Rahul Agarwal's 9-week AI portfolio](https://ai-portfolio-seven-drab.vercel.app/).
+> Paste a YouTube URL, get a structured AI summary — executive summary, key insights, action items, topics. Built as Week 2 of [Rahul Agarwal's 9-week AI portfolio](https://ai-portfolio-seven-drab.vercel.app/).
 
-## Status
+**Live demo:** https://youtube-summarizer-plum.vercel.app/ (runs in TEST_MODE — see below)
+**Backend health:** https://youtube-summarizer-backend-o60u.onrender.com/health
+**Recruiter case study:** [CASE_STUDY.md](./CASE_STUDY.md)
+**Build plan PDF (PM-friendly):** [Week-2_YouTube-Summarizer.pdf](../AI%20Plans/Project%20Plans/Week-2_YouTube-Summarizer.pdf)
 
-- **Phase 1 (2026-05-16):** Flask skeleton + Pydantic schema + 17 tests · DONE
-- **Phase 2 (2026-05-16):** Real pipeline live — `yt-dlp` → Whisper.cpp → Claude with prompt caching · DONE
-- **Phase 3 (2026-05-16):** React + Vite + Tailwind frontend · DONE
-- **Phase 4 (2026-05-17):** GitHub Actions CI + end-to-end testing · DONE
-- **Phase 5 (2026-05-17):** Deployment to Render + Vercel (demo mode) · DONE
-- **Phase 6 (next):** Case study + portfolio polish
+---
 
-## Live demo
+## What it demonstrates
 
-- **Frontend:** _set after Vercel deploy_
-- **Backend health:** _set after Render deploy_
+| AI capability | Visible in the product |
+|---|---|
+| **Long-context single-call inference** (~25k-token transcripts handled in one Claude call, not chunked) | The summary card renders insights that reference both minute 5 and minute 50 of long videos — chunking would lose that |
+| **Anthropic prompt caching** (`cache_control: ephemeral`) | The metadata footer shows one of three cache states: `cache HIT · X cached + Y fresh · ~90% saved` / `cache miss (first call) · cached for next 5 min` / `too short to cache (<1,024 tokens)` |
+| **Structured output via Pydantic** | Every response is round-tripped through `SummaryPayload` — malformed JSON is caught at the server boundary |
+| **Graceful failure handling** | yt-dlp 403s, Whisper timeouts, Claude credit exhaustion all map to distinct HTTP status codes with friendly UI messages |
 
-⚠️ **The live site runs in `TEST_MODE`** — it returns sample responses, not real transcriptions. To see the full pipeline against real YouTube videos, clone the repo and run locally (instructions below). This is by design: hosting Whisper.cpp + the 140&nbsp;MB model on Render's free tier (512&nbsp;MB RAM) is fragile, and yt-dlp gets blocked by YouTube from many cloud IPs. The deployed code is identical to the local pipeline — only the `TEST_MODE` flag differs.
+## Why the live demo runs in TEST_MODE
+
+The deployed backend returns stub responses, not real transcriptions. **By design.**
+
+- Render's free tier has 512 MB RAM; the Whisper.cpp small.en model needs ~400 MB just to load
+- Render instances sleep after 15 min, so cold-start latency would dominate user experience
+- yt-dlp from cloud-provider IPs is increasingly 403'd by YouTube
+
+The full pipeline runs locally with one command (see [Local dev](#local-dev-backend) below). The deployed code is identical to the local pipeline — only the `TEST_MODE=true` env var on Render differs. Demo-mode banner on the live site is explicit about the choice. v2 would swap Whisper.cpp for Whisper API on a paid tier; the trade-off is explained in [§5 of the case study](./CASE_STUDY.md#5-other-tech-full-stack-signal).
+
+## Build timeline
+
+| Phase | Date | What shipped |
+|---|---|---|
+| 1 | 2026-05-16 | Flask skeleton + Pydantic schema + 17 pytest tests |
+| 2 | 2026-05-16 | Real pipeline: yt-dlp → Whisper.cpp → Claude with prompt caching |
+| 3 | 2026-05-16 | React + Vite + Tailwind frontend, 19 vitest tests |
+| 4 | 2026-05-17 | GitHub Actions CI (green on every push) |
+| 5 | 2026-05-17 | Deployed to Vercel + Render, demo banner, project card on portfolio |
+| 6 | 2026-05-17 | CASE_STUDY.md + 3-state cache footer surfacing the cost-savings story in the UI |
+
+Each phase's "How to verify in Terminal" instructions and "Interesting Findings & Blockers" log are in the plan PDF linked above — 6 phases × 1 finding-per-phase minimum.
 
 ## Architecture
 
