@@ -34,12 +34,24 @@ class SummaryContent(BaseModel):
 
 
 class ResponseMetadata(BaseModel):
-    """Diagnostics — useful for debugging and the case study cost-math."""
+    """Diagnostics — useful for debugging and the case study cost-math.
+
+    The token breakdown lets the UI distinguish "cache HIT (savings!)" from
+    "cache MISS, first call (next will be cheaper)" from "too short to cache
+    (transcript under Anthropic's 1024-token minimum)" — all three are
+    information the user benefits from seeing.
+    """
     generated_at: str
     model: str
     tokens_used: int = Field(ge=0)
     cache_hit: bool = False
     pipeline_seconds: float = 0.0
+
+    # Token-type breakdown (zero in stub/demo responses)
+    input_tokens: int = Field(default=0, ge=0)
+    cache_creation_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
 
 
 class SummaryPayload(BaseModel):

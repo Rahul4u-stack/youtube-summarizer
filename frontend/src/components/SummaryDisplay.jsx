@@ -140,28 +140,95 @@ export default function SummaryDisplay({ payload }) {
       )}
 
       {/* Metadata + copy JSON */}
-      <footer className="rounded-xl bg-secondary/60 border border-slate-800 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-400">
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <span>model: <span className="text-slate-300 font-mono">{metadata?.model}</span></span>
-          <span>tokens: <span className="text-slate-300 font-mono">{metadata?.tokens_used?.toLocaleString() || 0}</span></span>
-          <span>
-            cache:{' '}
-            <span className={metadata?.cache_hit ? 'text-emerald-400' : 'text-slate-300'}>
-              {metadata?.cache_hit ? 'HIT (~90% cheaper)' : 'miss'}
-            </span>
-          </span>
-          {metadata?.pipeline_seconds > 0 && (
-            <span>elapsed: <span className="text-slate-300 font-mono">{metadata.pipeline_seconds.toFixed(1)}s</span></span>
-          )}
+      <footer className="rounded-xl bg-secondary/60 border border-slate-800 p-4 space-y-3 text-xs text-slate-400">
+        <CacheStatus metadata={metadata} />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>model: <span className="text-slate-300 font-mono">{metadata?.model}</span></span>
+            <span>tokens: <span className="text-slate-300 font-mono">{metadata?.tokens_used?.toLocaleString() || 0}</span></span>
+            {metadata?.pipeline_seconds > 0 && (
+              <span>elapsed: <span className="text-slate-300 font-mono">{metadata.pipeline_seconds.toFixed(1)}s</span></span>
+            )}
+          </div>
+          <button
+            onClick={handleCopy}
+            className="px-3 py-1.5 rounded text-sm bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 self-start sm:self-auto"
+          >
+            {copied ? '✓ Copied' : 'Copy JSON'}
+          </button>
         </div>
-        <button
-          onClick={handleCopy}
-          className="px-3 py-1.5 rounded text-sm bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
-        >
-          {copied ? '✓ Copied' : 'Copy JSON'}
-        </button>
       </footer>
     </article>
+  );
+}
+
+/**
+ * Render one of three cache states based on the metadata token breakdown:
+ *   1. HIT       — cache_read_tokens > 0   →  show savings ratio
+ *   2. MISS first call — cache_creation_tokens > 0  →  cached for next 5 min
+ *   3. Too short — neither — content was below Anthropic's 1024-token minimum
+ * The stub backend response has all-zeroes for the breakdown, which renders
+ * as state #3 with a "demo response" hint instead.
+ */
+function CacheStatus({ metadata }) {
+  if (!metadata) return null;
+
+  const cacheRead = metadata.cache_read_tokens || 0;
+  const cacheCreate = metadata.cache_creation_tokens || 0;
+  const input = metadata.input_tokens || 0;
+  const output = metadata.output_tokens || 0;
+  const isStub = metadata.model === 'stub';
+
+  // Bills approximation: cache_read ≈ 10% of input rate, cache_create ≈ 125%
+  // of input rate. (Output is billed separately and roughly same across calls.)
+  // We compare "what it would have cost without caching" vs "what it cost now".
+  const fresh = input + cacheCreate;
+  const totalCached = cacheRead;
+  const savingsPct = totalCached > 0
+    ? Math.round((1 - 0.1) * 100 * totalCached / (totalCached + fresh))
+    : 0;
+
+  if (metadata.cache_hit && cacheRead > 0) {
+    return (
+      <div className="flex items-center gap-2 text-emerald-400 font-medium">
+        <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" aria-hidden="true" />
+        <span>
+          cache HIT · {cacheRead.toLocaleString()} cached + {fresh.toLocaleString()} fresh ·
+          <span className="text-emerald-300"> ~{savingsPct}% cost saved vs. uncached</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (cacheCreate > 0) {
+    return (
+      <div className="flex items-center gap-2 text-sky-300 font-medium">
+        <span className="inline-block w-2 h-2 rounded-full bg-sky-400" aria-hidden="true" />
+        <span>
+          cache miss (first call) · {cacheCreate.toLocaleString()} tokens cached for 5 min ·
+          <span className="text-sky-200"> repeat will be ~90% cheaper</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (isStub) {
+    return (
+      <div className="flex items-center gap-2 text-amber-300 font-medium">
+        <span className="inline-block w-2 h-2 rounded-full bg-amber-400" aria-hidden="true" />
+        <span>demo response · token breakdown not applicable in TEST_MODE</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-slate-400 font-medium">
+      <span className="inline-block w-2 h-2 rounded-full bg-slate-500" aria-hidden="true" />
+      <span>
+        too short to cache · Anthropic only caches content blocks ≥ 1,024 tokens
+        (~5 min of speech)
+      </span>
+    </div>
   );
 }
 

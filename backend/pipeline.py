@@ -362,6 +362,10 @@ def run_pipeline(url: str, out_dir: Path, client: anthropic.Anthropic) -> dict:
             model=ANTHROPIC_MODEL,
             tokens_used=usage["tokens_used"],
             cache_hit=usage["cache_hit"],
+            input_tokens=usage["input_tokens"],
+            cache_creation_tokens=usage["cache_creation_tokens"],
+            cache_read_tokens=usage["cache_read_tokens"],
+            output_tokens=usage["output_tokens"],
             pipeline_seconds=round(pipeline_seconds, 2),
         ),
     )

@@ -129,6 +129,10 @@ def stub_summary_payload(url: str) -> dict:
             tokens_used=0,
             cache_hit=False,
             pipeline_seconds=0.0,
+            input_tokens=0,
+            cache_creation_tokens=0,
+            cache_read_tokens=0,
+            output_tokens=0,
         ),
     )
     return payload.model_dump()
