@@ -54,15 +54,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-CORS(app, origins=[
-    "http://localhost:3000",
-    "http://localhost:5173",
-    os.getenv("FRONTEND_URL", "*"),
-])
-
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+app = Flask(__name__)
+# In TEST_MODE the API only returns stub payloads, so allow any origin —
+# this lets the demo work from any preview deploy without dashboard fiddling.
+# In live mode, lock CORS down to known frontends (localhost + FRONTEND_URL).
+# Note: flask-cors mixes specific origins with "*" poorly (preflight stops
+# echoing Allow-Origin for unknown origins), so we pick one mode or the other.
+if TEST_MODE:
+    CORS(app)
+else:
+    _live_origins = ["http://localhost:3000", "http://localhost:5173"]
+    _frontend_url = os.getenv("FRONTEND_URL")
+    if _frontend_url:
+        _live_origins.append(_frontend_url)
+    CORS(app, origins=_live_origins)
+
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Accepted YouTube URL forms:
