@@ -141,12 +141,23 @@ def test_transcribe_missing_model_raises(tmp_path, monkeypatch):
         transcribe(fake_audio)
 
 
-def test_transcribe_parses_whisper_json(tmp_path, monkeypatch):
-    fake_audio = tmp_path / "audio.wav"
-    fake_audio.write_bytes(b"RIFF....")
+def _patch_whisper_paths(monkeypatch, tmp_path):
+    """Point WHISPER_BIN and WHISPER_MODEL at real files in tmp_path so
+    transcribe()'s existence checks pass on every CI runner — the default
+    paths are macOS-specific (/opt/homebrew/...) and fail on Linux."""
+    fake_bin = tmp_path / "whisper-bin"
+    fake_bin.write_bytes(b"#!/bin/sh\nexit 0\n")
+    fake_bin.chmod(0o755)
     fake_model = tmp_path / "model.bin"
     fake_model.write_bytes(b"x")
+    monkeypatch.setattr(pipeline, "WHISPER_BIN", str(fake_bin))
     monkeypatch.setattr(pipeline, "WHISPER_MODEL", str(fake_model))
+
+
+def test_transcribe_parses_whisper_json(tmp_path, monkeypatch):
+    _patch_whisper_paths(monkeypatch, tmp_path)
+    fake_audio = tmp_path / "audio.wav"
+    fake_audio.write_bytes(b"RIFF....")
 
     # whisper.cpp writes audio.wav.json beside the audio file
     json_out = fake_audio.with_suffix(fake_audio.suffix + ".json")
@@ -168,11 +179,9 @@ def test_transcribe_parses_whisper_json(tmp_path, monkeypatch):
 
 
 def test_transcribe_handles_nonzero_returncode(tmp_path, monkeypatch):
+    _patch_whisper_paths(monkeypatch, tmp_path)
     fake_audio = tmp_path / "audio.wav"
     fake_audio.write_bytes(b"x")
-    fake_model = tmp_path / "model.bin"
-    fake_model.write_bytes(b"x")
-    monkeypatch.setattr(pipeline, "WHISPER_MODEL", str(fake_model))
 
     proc = MagicMock(returncode=1, stderr="whisper exploded")
     with patch.object(pipeline.subprocess, "run", return_value=proc):
