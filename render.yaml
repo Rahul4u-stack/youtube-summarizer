@@ -1,0 +1,34 @@
+# Render service blueprint for the YouTube Summarizer backend.
+#
+# Connecting this repo via Render's "Blueprints" feature
+# (https://dashboard.render.com/blueprints) picks up this file and creates
+# the service with the right settings. If creating manually via the web
+# dashboard instead, mirror these values.
+#
+# Backend ships in TEST_MODE in production by default — the live pipeline
+# needs Whisper.cpp + a 140MB model file which Render free tier can't host
+# reliably. Flip TEST_MODE=false only on a paid instance with a Dockerfile
+# that installs whisper-cpp.
+
+services:
+  - type: web
+    name: youtube-summarizer-backend
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: '3.11'
+      - key: TEST_MODE
+        value: 'true'
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      # Set these in the Render dashboard (NOT committed here):
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false

@@ -6,18 +6,17 @@ Paste a YouTube link, get a structured summary back — key insights, executive 
 
 - **Phase 1 (2026-05-16):** Flask skeleton + Pydantic schema + 17 tests · DONE
 - **Phase 2 (2026-05-16):** Real pipeline live — `yt-dlp` → Whisper.cpp → Claude with prompt caching · DONE
-- **Phase 3 (next):** React frontend
-- **Phase 4–6:** Integration + deployment + case study
+- **Phase 3 (2026-05-16):** React + Vite + Tailwind frontend · DONE
+- **Phase 4 (2026-05-17):** GitHub Actions CI + end-to-end testing · DONE
+- **Phase 5 (2026-05-17):** Deployment to Render + Vercel (demo mode) · DONE
+- **Phase 6 (next):** Case study + portfolio polish
 
-### Phase 2 verified metrics
+## Live demo
 
-| Test | Duration | Pipeline time | Tokens | Cache hit |
-|------|----------|---------------|--------|-----------|
-| "Me at the zoo" (1st YT video ever) | 19s | 17.2s | 651 | n/a (too short for cache) |
-| Steve Jobs Stanford 2005 — call 1 | 904s (15 min) | 59.3s | 3731 | False (cache create) |
-| Steve Jobs Stanford 2005 — call 2 | 904s (15 min) | 61.6s | 3735 | **True** (~90% cheaper) |
+- **Frontend:** _set after Vercel deploy_
+- **Backend health:** _set after Render deploy_
 
-**Cache caveat:** Anthropic only caches content blocks ≥1024 tokens. Short transcripts (under ~5 min of speech) won't trigger the cache, even with `cache_control: ephemeral`. This is a real production constraint worth knowing.
+⚠️ **The live site runs in `TEST_MODE`** — it returns sample responses, not real transcriptions. To see the full pipeline against real YouTube videos, clone the repo and run locally (instructions below). This is by design: hosting Whisper.cpp + the 140&nbsp;MB model on Render's free tier (512&nbsp;MB RAM) is fragile, and yt-dlp gets blocked by YouTube from many cloud IPs. The deployed code is identical to the local pipeline — only the `TEST_MODE` flag differs.
 
 ## Architecture
 
@@ -31,6 +30,8 @@ Flask (Render)
       ├─ Claude API    transcript -> structured JSON (with prompt caching)
       └─ Pydantic      validate response before returning
 ```
+
+In production both Vercel and Render are on the free tier. The frontend stays warm always; the backend sleeps after 15 min of inactivity and takes ~30s to wake up (handled gracefully by the frontend with a "warming up" message).
 
 ## Local dev (backend)
 
@@ -52,7 +53,7 @@ TEST_MODE=false python app.py
 # -> http://localhost:5001/health
 ```
 
-### System dependencies (live mode)
+### System dependencies (live mode only)
 
 - **ffmpeg** — used by `yt-dlp` to extract WAV (`brew install ffmpeg`)
 - **whisper.cpp** — local transcription (`brew install whisper-cpp`)
@@ -60,12 +61,59 @@ TEST_MODE=false python app.py
 
 In TEST_MODE (default in `.env.example`), `POST /api/summarize` returns a fully-shaped stub without calling any external APIs — great for frontend dev and CI.
 
+## Local dev (frontend)
+
+```bash
+cd frontend
+npm install
+npm run dev
+# -> http://localhost:5173
+```
+
+The frontend reads `VITE_API_URL` from `.env.local`; default is `http://localhost:5001`. Tests run via `npm test`.
+
+## Production deployment
+
+### Render (backend)
+
+1. From the Render dashboard → **New +** → **Blueprint**
+2. Connect this GitHub repo. Render reads `render.yaml` and creates a `youtube-summarizer-backend` web service.
+3. In the service's **Environment** tab, set the secrets:
+   - `ANTHROPIC_API_KEY` — your key from console.anthropic.com
+   - `FRONTEND_URL` — your Vercel URL once known (for CORS)
+4. Deploy. Health URL: `https://<your-name>.onrender.com/health`
+
+Free tier note: the instance sleeps after 15&nbsp;min of inactivity. First request after sleep takes ~30s to wake — the frontend shows a "warming up" hint after 8s.
+
+### Vercel (frontend)
+
+1. From the Vercel dashboard → **Add New** → **Project**
+2. Import this GitHub repo
+3. **Root Directory:** `frontend`
+4. Framework preset: **Vite** (auto-detected)
+5. Add environment variable:
+   - `VITE_API_URL` = your Render backend URL (e.g., `https://youtube-summarizer.onrender.com`)
+6. Deploy. The site will be at `https://<vercel-auto-name>.vercel.app`.
+
+After both are live, update the Render service's `FRONTEND_URL` to the Vercel URL and redeploy so CORS allows it.
+
+## Phase 2 verified metrics (local)
+
+| Test | Duration | Pipeline time | Tokens | Cache hit |
+|------|----------|---------------|--------|-----------|
+| "Me at the zoo" (1st YT video ever) | 19s | 17.2s | 651 | n/a (too short for cache) |
+| Steve Jobs Stanford 2005 — call 1 | 904s (15 min) | 59.3s | 3731 | False (cache create) |
+| Steve Jobs Stanford 2005 — call 2 | 904s (15 min) | 61.6s | 3735 | **True** (~90% cheaper) |
+
+**Cache caveat:** Anthropic only caches content blocks ≥1024 tokens. Short transcripts (under ~5 min of speech) won't trigger the cache, even with `cache_control: ephemeral`. This is a real production constraint worth knowing.
+
 ## API
 
 ### `GET /health`
 ```json
 {"status": "healthy", "test_mode": true, "model": "claude-sonnet-4-6"}
 ```
+The frontend uses this to render the "Demo mode" banner when `test_mode` is true.
 
 ### `POST /api/summarize`
 **Request:**
@@ -97,19 +145,21 @@ In TEST_MODE (default in `.env.example`), `POST /api/summarize` returns a fully-
 
 **Errors:**
 - `400` invalid request body or non-YouTube URL
-- `501` live mode requested but pipeline not implemented yet (Phase 1)
-- `502` AI returned malformed data (Phase 2)
+- `402` Anthropic credits exhausted
+- `408` request took too long (>4 min)
+- `501` live mode requested but Whisper not installed
+- `502` AI returned malformed data, or yt-dlp/Whisper failed
 - `500` unexpected server error
 
 ## Tech
 
-- **Backend:** Python 3.9+ · Flask 3 · Anthropic SDK · yt-dlp · Pydantic · gunicorn
-- **Frontend (Phase 3):** React 18 · Vite · Tailwind CSS · axios
-- **AI:** Claude Sonnet 4.6 (summarization) · Whisper.cpp small.en (transcription, local)
+- **Backend:** Python 3.11 · Flask 3 · Anthropic SDK · yt-dlp · Pydantic · gunicorn
+- **Frontend:** React 18 · Vite · Tailwind CSS · axios
+- **AI:** Claude Sonnet 4.6 (summarization with prompt caching) · Whisper.cpp small.en (local transcription)
 - **Deploy:** Vercel (frontend) · Render (backend)
-- **CI:** GitHub Actions (pytest + Vitest on every push)
+- **CI:** GitHub Actions (pytest 36 + vitest 19 + frontend build on every push)
 
 ## Repo
 
-- Live: _coming after Phase 5_
-- Case study: [Project Plans/Week-2_YouTube-Summarizer.pdf](../AI%20Plans/Project%20Plans/Week-2_YouTube-Summarizer.pdf)
+- Repo: https://github.com/Rahul4u-stack/youtube-summarizer
+- Case study: [Week-2_YouTube-Summarizer.pdf](../AI%20Plans/Project%20Plans/Week-2_YouTube-Summarizer.pdf)

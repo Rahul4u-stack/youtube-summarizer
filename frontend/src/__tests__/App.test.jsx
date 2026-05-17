@@ -14,6 +14,9 @@ vi.mock('../api', () => ({
     }
   },
   summarize: vi.fn(),
+  // Default to "unreachable" so the demo banner stays hidden in tests.
+  // Individual tests can override per-call if they want to assert banner state.
+  health: vi.fn().mockResolvedValue({ ok: false }),
 }));
 
 import { summarize } from '../api';

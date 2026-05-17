@@ -4,7 +4,8 @@ import LoadingState from './components/LoadingState';
 import ErrorMessage from './components/ErrorMessage';
 import SummaryDisplay from './components/SummaryDisplay';
 import HistorySidebar from './components/HistorySidebar';
-import { summarize, ApiError, apiBase } from './api';
+import DemoBanner from './components/DemoBanner';
+import { summarize, health, ApiError, apiBase } from './api';
 import { getHistory, addToHistory, clearHistory } from './history';
 
 export default function App() {
@@ -13,10 +14,14 @@ export default function App() {
   const [coldStart, setColdStart] = useState(false);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
+  const [testMode, setTestMode] = useState(null); // null until /health resolves
 
-  // Load history on mount
+  // Load history on mount + probe backend mode
   useEffect(() => {
     setHistory(getHistory());
+    health().then((h) => {
+      if (h.ok) setTestMode(Boolean(h.test_mode));
+    });
   }, []);
 
   const handleSubmit = async (url) => {
@@ -62,6 +67,8 @@ export default function App() {
       />
 
       <main className="flex-1 px-5 py-10 lg:py-16">
+        <DemoBanner show={testMode === true} />
+
         <header className="max-w-2xl mx-auto text-center mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
             YouTube <span className="text-accent">Summarizer</span>
