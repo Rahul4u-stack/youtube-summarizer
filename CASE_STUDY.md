@@ -1,10 +1,8 @@
 # YouTube Summarizer — Case Study
 
 > **Shipped:** 2026-05-17 (Week 2 of [Rahul Agarwal's 9-week AI portfolio](https://ai-portfolio-seven-drab.vercel.app/))
-> **Live demo:** https://youtube-summarizer-plum.vercel.app/ (runs in TEST_MODE — see [§5 deployment trade-offs](#5-other-tech-full-stack-signal))
+> **Live demo:** https://youtube-summarizer-plum.vercel.app/ (runs in TEST_MODE — see §5 for the deployment trade-offs)
 > **Repo:** https://github.com/Rahul4u-stack/youtube-summarizer
-
-This is the recruiter-facing case study. It follows my [9-section AI PM framework](https://github.com/Rahul4u-stack/ai-portfolio): pitch, problem, AI capability, AI tools, full-stack tech, architecture decisions, what I'd do differently, outcome, interview defense.
 
 ---
 
@@ -46,7 +44,7 @@ Three states, each one teaches the user something. The headline AI capability of
 
 ---
 
-## 4. AI tools used (the stack proof)
+## 4. AI tools used
 
 - **`claude-sonnet-4-6`** (Anthropic Messages API) for summarization, with `cache_control: {type: "ephemeral"}` on the transcript content block
 - **Whisper.cpp small.en** (local, Apple Metal-accelerated) for speech-to-text — runs in ~30s on a 15-min video on M4
@@ -63,7 +61,7 @@ Cost economics, real numbers from my verification runs:
 
 ---
 
-## 5. Other tech (full-stack signal)
+## 5. Other tech
 
 - **Frontend:** React 18 + Vite 5 + Tailwind CSS 3 + axios — same proven stack as my [Calorie Estimator](https://calorie-estimator.vercel.app) and [AI Portfolio](https://ai-portfolio-seven-drab.vercel.app). 19 vitest tests.
 - **Backend:** Python 3.11 + Flask 3 + Anthropic SDK + gunicorn. 36 pytest tests covering input validation, schema parsing, the 3 pipeline stages individually, error paths, and prompt-caching parameter shape.
@@ -78,13 +76,13 @@ I deliberately deployed the backend in `TEST_MODE` — it returns stub responses
 - Render free instances sleep after 15 min of inactivity, so the first request takes ~30s to wake up — and that's the *cold start*, before any actual pipeline work.
 - yt-dlp from cloud-provider IPs is increasingly 403'd by YouTube; the local Mac development case is robust but the cloud-server case is not.
 
-So the live URL works reliably for portfolio visitors — they can click through the UI, see the API contract, see the cache-state footer — but real summarization runs locally. The README explains how to run the full pipeline in two commands. The Demo Mode banner on the live site is explicit about the choice. The interview answer for "why didn't you deploy the full pipeline?" is *"because I picked correctness-of-demo over feature-parity. The code that runs the real pipeline is in the repo and runs locally with one command — v2 would swap Whisper.cpp for Whisper API + a paid tier."*
+So the live URL works reliably for portfolio visitors — they can click through the UI, see the API contract, see the cache-state footer — but real summarization runs locally. The README explains how to run the full pipeline in two commands. The Demo Mode banner on the live site is explicit about the choice. Why not deploy the full pipeline? Because I picked correctness-of-demo over feature-parity: the code that runs the real pipeline is in the repo and runs locally with one command — v2 would swap Whisper.cpp for Whisper API + a paid tier.
 
 ---
 
-## 6. Architecture decisions & trade-offs ⭐
+## 6. Architecture decisions & trade-offs
 
-The five most defensible decisions, each in the "Chose X over Y because Z" form recruiters expect.
+The five decisions that shaped the product, each in "Chose X over Y because Z" form.
 
 ### 6.1 Chose single-call long-context over chunking
 
@@ -93,7 +91,7 @@ The five most defensible decisions, each in the "Chose X over Y because Z" form 
 | Pros | Claude sees full video; better summaries; simpler code | Cheaper per call | Best of both |
 | Cons | Higher per-call cost (~$0.015) | Loses cross-references | 3× API calls, more latency |
 
-**Why:** chunking is the obvious "save tokens" move, but it degrades summary quality (cross-references between minute 5 and minute 50 disappear). The real cost win is caching, not chunking — and the deployed UI proves it numerically. This is the interview answer that separates *naive* cost optimization from *production-aware* cost optimization.
+**Why:** chunking is the obvious "save tokens" move, but it degrades summary quality (cross-references between minute 5 and minute 50 disappear). The real cost win is caching, not chunking — and the deployed UI proves it numerically. That's the difference between *naive* cost optimization and *production-aware* cost optimization.
 
 ### 6.2 Chose Anthropic prompt caching from day 1, not as an afterthought
 
@@ -118,7 +116,7 @@ I tell Claude the JSON shape in the prompt and parse with Pydantic. I do *not* u
 
 ### 6.5 Chose Demo Mode in production over best-effort live pipeline
 
-Already discussed in §5. The non-obvious version of this argument: a portfolio piece optimizes for *recruiter readability* (clear code, clear architecture, working demo URL) rather than *user traffic*. A live pipeline that OOM-crashes weekly is worse than a stub that always works.
+Already discussed in §5. The non-obvious version of this argument: a portfolio piece optimizes for *clarity to the reader* (clear code, clear architecture, working demo URL) rather than *user traffic*. A live pipeline that OOM-crashes weekly is worse than a stub that always works.
 
 ---
 
@@ -147,20 +145,20 @@ Already discussed in §5. The non-obvious version of this argument: a portfolio 
 
 ---
 
-## 9. Interview defense — 3 likely questions
+## 9. Design questions, answered
 
-**Q1: Why Claude Sonnet rather than Haiku or GPT-4?**
-A: Sonnet balances speed and accuracy for long text. Haiku (cheaper) lacks the nuance for academic / technical videos and I checked this on the Steve Jobs Stanford speech — Haiku's "key insights" missed two of the three famous themes. GPT-4 is overkill: summarization isn't reasoning-heavy, and switching providers would have meant rebuilding the caching code (GPT doesn't have an equivalent ephemeral cache). Sonnet is the cost-quality sweet spot at this product's scale.
+**Why Claude Sonnet rather than Haiku or GPT-4?**
+Sonnet balances speed and accuracy for long text. Haiku (cheaper) lacks the nuance for academic / technical videos and I checked this on the Steve Jobs Stanford speech — Haiku's "key insights" missed two of the three famous themes. GPT-4 is overkill: summarization isn't reasoning-heavy, and switching providers would have meant rebuilding the caching code (GPT doesn't have an equivalent ephemeral cache). Sonnet is the cost-quality sweet spot at this product's scale.
 
-**Q2: How do you handle hallucinations in long transcripts?**
-A: Three layers. (1) The prompt explicitly says "extract insights mentioned in the transcript only, not inferred from your training data." (2) Pydantic validates the JSON shape — malformed responses (which sometimes happen when Claude wraps JSON in markdown fences) get retried via the regex extractor. (3) The summary's `tone` field surfaces calibration confidence — when Claude classifies a video as "promotional" the UI can render that visibly so the user knows the source is biased. For v2 I'd add TruLens-style automated evals on a labeled sample to measure factual grounding rate empirically, not just by feel.
+**How does it handle hallucinations in long transcripts?**
+Three layers. (1) The prompt explicitly says "extract insights mentioned in the transcript only, not inferred from your training data." (2) Pydantic validates the JSON shape — malformed responses (which sometimes happen when Claude wraps JSON in markdown fences) get retried via the regex extractor. (3) The summary's `tone` field surfaces calibration confidence — when Claude classifies a video as "promotional" the UI can render that visibly so the user knows the source is biased. For v2 I'd add TruLens-style automated evals on a labeled sample to measure factual grounding rate empirically, not just by feel.
 
-**Q3: What's the cost-per-summary at 100k summaries/month?**
-A: At Sonnet pricing (~$3 per million input tokens / $15 per million output): an uncached 15-minute video costs ~$0.015 per summary. With Anthropic's 5-min ephemeral cache and ~30% cache hit rate from the production load distribution (popular videos summarized many times), the blended cost is (0.7 × 100k × $0.015) + (0.3 × 100k × $0.0015) = **~$1,095 / month** at scale. To halve this for v2 I'd add Redis to extend cache TTL beyond 5 minutes — popular videos would get summarized cheaply for hours, not just within the same conversation. That pushes the blended hit rate to ~60% and the blended cost to ~$700/month.
+**What's the cost-per-summary at 100k summaries/month?**
+At Sonnet pricing (~$3 per million input tokens / $15 per million output): an uncached 15-minute video costs ~$0.015 per summary. With Anthropic's 5-min ephemeral cache and ~30% cache hit rate from the production load distribution (popular videos summarized many times), the blended cost is (0.7 × 100k × $0.015) + (0.3 × 100k × $0.0015) = **~$1,095 / month** at scale. To halve this for v2 I'd add Redis to extend cache TTL beyond 5 minutes — popular videos would get summarized cheaply for hours, not just within the same conversation. That pushes the blended hit rate to ~60% and the blended cost to ~$700/month.
 
 ---
 
-## Findings worth knowing (selected — see [plan PDF](../AI%20Plans/Project%20Plans/Week-2_YouTube-Summarizer.pdf) for the full set)
+## Findings worth knowing
 
 1. **Anthropic prompt caching has a 1024-token minimum, silently ignored below it.** Test caching with a long video to avoid a "wait, my caching does nothing" false alarm.
 2. **The aggregate `tokens_used` metric hides cache savings.** Total tokens stays flat across cached and uncached calls — the cost difference is in the token-type mix. If you only surface the aggregate, you'll confuse yourself into thinking caching isn't working. I built a 3-state cache footer (HIT / first call / too short) so the user always sees the ratio, not the total.
@@ -168,8 +166,6 @@ A: At Sonnet pricing (~$3 per million input tokens / $15 per million output): an
 4. **`flask-cors` mixes specific origins with `*` poorly — preflight stops echoing Allow-Origin for unknown origins.** `CORS(app, origins=["http://localhost:5173", "*"])` is **not** the same as `CORS(app)`. The first constrains; the second is permissive. In a TEST_MODE-only demo deploy, prefer the second.
 5. **Linux CI exposes "works on my machine" assumptions immediately** — tests that pass on macOS (where `/opt/homebrew/bin/whisper` exists) failed on Ubuntu because the existence check fired before the subprocess mock could take over. Always monkey-patch *every* external-tool path the function checks, not just the model.
 
-The full Findings list is in the plan PDF — six entries from Phases 2 through 5.
-
 ---
 
-*Built with Claude Code over 2 days. The full build plan, day-by-day phase verification, and findings log are in [`AI Plans/Project Plans/Week-2_YouTube-Summarizer.pdf`](../AI%20Plans/Project%20Plans/Week-2_YouTube-Summarizer.pdf).*
+*Built with Claude Code over 2 days.*
